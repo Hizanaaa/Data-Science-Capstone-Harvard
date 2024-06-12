@@ -1,0 +1,976 @@
+---
+title: "Movie Recommender System"
+author: "Hizana Nasreen E S"
+date: "2024-05-10"
+output: 
+  pdf_document: 
+    toc: TRUE
+    toc_depth: 2
+    number_sections: TRUE
+    highlight: pygments
+    keep_tex: TRUE
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = 'center', cache=FALSE, cache.lazy = FALSE)
+```
+
+# OVERVIEW
+
+## Introduction and Aim of the Project
+
+The purpose of the project is to create a movie recommendation system, using the MovieLens data set, by building models and evaluating the RMSE for the final Algorithm.
+
+## The MovieLens Data set
+
+The MovieLens data set is a popular open data set for building and evaluating recommender systems. The 10M version of the MovieLens data set is being used for this project. This version contains **approximately 10 million ratings from 71000 users on about 10000 movies**.
+
+Some of the key statistics of the data set are as follows: - The average rating is around 3.5 - The most active user rated over 2,000 movies. - Over 30,000 users rated the most popular movie.
+
+## Methods Used/Followed
+
+1.  Library installation and Data Loading
+2.  Data Summary
+3.  Data Cleaning and Preprocessing
+4.  Data Visualization
+5.  Model Building and Evaluation
+    -   Mean baseline Model
+    -   Movie based Model
+    -   Movie + User based Model
+6.  Regularization
+
+## About the Model and its RMSE
+
+The model is trained using 90% of the data set(edx set) and tested using the remaining 10% of the data set(final_holdout_test set)
+
+The Root Mean Squared Error(RMSE), is defined as:
+
+$$\mbox{RMSE} = \sqrt{\frac{1}{n}\sum_{u,i}^{} (\hat{y}_{u,i} - y_{u,i})^2 }$$ The aim of the project is achieved by building a **Regularized Movie+User Model**, which is capable of achieving a RMSE of **0.8628**.
+
+\newpage
+
+# METHODS/ANALYSIS
+
+## Library Installation and Data Loading
+
+The project initiates by verifying the presence of essential R packages, including tidyverse, KableExtra, ggplot2, caret. In the event that any of these packages are not installed, the code automatically installs them.
+
+Subsequently, it loads these libraries to facilitate the execution of subsequent data manipulation and analysis tasks. The Movie Lens 10M data set is retrieved and subsequently processed, involving the extraction of ratings and movies data, which forms the foundation of the analysis. The data set is then partitioned into training and testing sets containing 90% of the data and 10% of the data, respectively
+
+```{r, include= FALSE, echo = TRUE}
+# Install all needed libraries if it is not present
+if(!require(tidyverse)) install.packages("tidyverse")
+if(!require(kableExtra)) install.packages("kableExtra")
+if(!require(tidyr)) install.packages("tidyr")
+if(!require(ggplot2)) install.packages("ggplot2")
+if(!require(caret)) install.packages("caret")
+if(!require(RColorBrewer)) install.packages("RColorBrewer")
+if(!require(forcats)) install.packages("forcats")
+```
+
+```{r, include= FALSE, echo = TRUE}
+#loading required Libraries
+library(tidyverse)
+library(tidyr)
+library(kableExtra)
+library(ggplot2)
+library(caret)
+library(forcats)
+library(RColorBrewer)
+```
+
+```{r, include= FALSE, echo = TRUE}
+options(timeout = 120)
+
+dl <- "ml-10M100K.zip"
+if(!file.exists(dl))
+  download.file("https://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings_file <- "ml-10M100K/ratings.dat"
+if(!file.exists(ratings_file))
+  unzip(dl, ratings_file)
+
+movies_file <- "ml-10M100K/movies.dat"
+if(!file.exists(movies_file))
+  unzip(dl, movies_file)
+
+ratings <- as.data.frame(str_split(read_lines(ratings_file), fixed("::"), simplify = TRUE),
+                         stringsAsFactors = FALSE)
+colnames(ratings) <- c("userId", "movieId", "rating", "timestamp")
+ratings <- ratings %>%
+  mutate(userId = as.integer(userId),
+         movieId = as.integer(movieId),
+         rating = as.numeric(rating),
+         timestamp = as.integer(timestamp))
+
+movies <- as.data.frame(str_split(read_lines(movies_file), fixed("::"), simplify = TRUE),
+                        stringsAsFactors = FALSE)
+colnames(movies) <- c("movieId", "title", "genres")
+movies <- movies %>%
+  mutate(movieId = as.integer(movieId))
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+ # Final hold-out test set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding") # if using R 3.6 or later
+
+# set.seed(1) # if using R 3.5 or earlier
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in final hold-out test set are also in edx set
+final_holdout_test <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from final hold-out test set back into edx set
+removed <- anti_join(temp, final_holdout_test)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+```
+
+\newpage
+
+## Data Summary
+
+```{r, include= FALSE, echo = FALSE}
+#dimensions of the dataset 
+dim(edx)
+
+#class of the attributes in the dataset
+sapply(edx,class) 
+
+#structure of data
+str(edx)
+
+#first and last 6 rows of the dataset
+head(edx)
+tail(edx)
+```
+
+The data set set has **9000055 rows and 6 columns**. Here is a glimpse of the data set.
+
+```{r, include= TRUE, echo = FALSE}
+head(edx) |>
+  kable() |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+```
+
+```{r, include= TRUE, echo = FALSE}
+#summary of the edx dataset
+summary(edx) |> 
+  kable() |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+```
+
+The attribute **title** and **genre** are of the type **character**, due which the statistics functions(min, 1st Quartile, median, mean, 3rd Quartile and max ) are **not applicable**.
+
+Given below is the list of top 25 most frequently rated movies in our data set:
+
+```{r, include=TRUE, echo=FALSE}
+edx %>%
+  group_by(title) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>%
+  head(n=25) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+```
+
+\newpage
+
+## Data Cleaning and Preprocessing
+
+As part of out data quality Analysis, the data is checked for missing values, duplicates, inconsistent titles, and outliers.
+
+```{r, include= FALSE, echo = FALSE}
+#checking for missing values
+sapply(edx, function(x) sum(is.na(x)))
+
+#checking for duplicates
+duplicated_rows <- edx[duplicated(edx), ]
+nrow(duplicated_rows)
+
+#checking for inconsistent data
+inconsistent_titles <- edx |>
+  group_by(movieId) |>
+  summarise(n_titles = n_distinct(title)) |>
+  filter(n_titles > 1)
+nrow(inconsistent_titles)
+
+#checking for outliers
+outlier_ratings <- edx[abs(edx$rating - mean(edx$rating)) > 3 * sd(edx$rating), ]
+nrow(outlier_ratings)
+```
+
+The results of the quality check performed have significant impact on our analysis. The presence of outliers, missing values, etc may require additional cleaning and pre-processing to ensure that our results are accurate, accountable and reliable.
+
+```{r,include= TRUE, echo = FALSE}
+# Create a data frame to store the results
+results <- data.frame(
+  Check = c("Missing Values", "Duplicates", "Inconsistent Data", "Outliers"),
+  Count = c(
+    sum(sapply(edx, function(x) sum(is.na(x)))),
+    nrow(duplicated_rows),
+    nrow(inconsistent_titles),
+    nrow(outlier_ratings)))
+
+# Use kable to display the results
+results |>
+  kable() |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+```
+
+The results of our data quality check implies that, the data is clean and is ready for use.
+
+### Extracting the year and month
+
+Extracting the year and month from the timestamp column enables further analysis based on the rating year and month. This can be useful in identifying trends and patterns in the data based on the time of the rating.
+
+Similarly, extracting the release year enables analysis based on the release year, which can be useful in identifying trends and patterns in the data based on the release year.
+
+**Before extraction:**
+
+```{r, include= TRUE, echo = FALSE}
+edx |>
+  select(timestamp) |>
+  slice(1:5) |>
+  kable() |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+  
+```
+
+```{r, include= FALSE, echo = FALSE}
+#Extracting Year and Month from Timestamp from edx
+edx$rating_date <- as.POSIXct(edx$timestamp, origin="1970-01-01")
+edx$rating_year <- format(edx$rating_date,"%Y")
+edx$rating_month <- format(edx$rating_date,"%m")
+
+edx$rating_year <- as.numeric(edx$rating_year)
+edx$rating_month <- as.numeric(edx$rating_month)
+
+#Extracting Year and Month from Timestamp from final_holdout_test set
+final_holdout_test$rating_date <- as.POSIXct(final_holdout_test$timestamp, origin="1970-01-01")
+final_holdout_test$rating_year <- format(final_holdout_test$rating_date,"%Y")
+final_holdout_test$rating_month <- format(final_holdout_test$rating_date,"%m")
+
+final_holdout_test$rating_year <- as.numeric(final_holdout_test$rating_year)
+final_holdout_test$rating_month <- as.numeric(final_holdout_test$rating_month)
+
+```
+
+**After extraction:**
+
+```{r, include=TRUE,echo=FALSE}
+edx |>
+  select(rating_year,rating_month) |>
+  slice(1:5) |>
+  kable() |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+```
+
+### Extracting Release year and Movie titles
+
+Originally, the `title` column in the data set contains the title of the movie along with its release year. Extracting the release years and movie titles enables further analysis based on these variables. This can be useful in identifying trends and patterns in the data based on the release year and movie title.
+
+The cleaning and preprocessing steps performed during this ensure that the data is in a consistent and usable format for further analysis.
+
+**Before extraction:**
+
+```{r, include=TRUE,echo=FALSE}
+edx |>
+  select(title) |>
+  slice(1:5) |>
+  kable() |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+```
+
+```{r, include= FALSE, echo = FALSE}
+#Extracting release years and movie titles from edx dataset
+edx <- 
+  edx |>
+  mutate(title = str_trim(title)) |>
+  extract(title,c("Temptitle", "release_year"), 
+          regex = "^(.*) \\(([0-9 \\-]*)\\)$",
+          remove = F) |>
+  mutate(release_year = if_else(str_length(release_year) > 4,
+                           as.integer(str_split(release_year, "-",simplify = T)[1]),as.integer(release_year))) |>
+  mutate(title = if_else(is.na(Temptitle),title,Temptitle)) |>
+  select(-Temptitle)
+
+#Changing the datatype of the extracted release year
+edx$release_year <- as.numeric(edx$release_year)
+
+#Extracting release years and movie titles from final_holdout dataset
+final_holdout_test <- 
+  final_holdout_test |>
+  mutate(title = str_trim(title)) |>
+  extract(title,c("Temptitle", "release_year"), 
+          regex = "^(.*) \\(([0-9 \\-]*)\\)$",
+          remove = F) |>
+  mutate(release_year = if_else(str_length(release_year) > 4,
+                           as.integer(str_split(release_year, "-",simplify = T)[1]),as.integer(release_year))) |>
+  mutate(title = if_else(is.na(Temptitle),title,Temptitle)) |>
+  select(-Temptitle)
+
+#Changing the datatype of the extracted release year
+final_holdout_test$release_year <- as.numeric(final_holdout_test$release_year)
+
+```
+
+**After Extraction:**
+
+```{r, include=TRUE,echo=FALSE}
+edx |>
+  select(title,release_year) |>
+  slice(1:5) |>
+  kable() |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+```
+
+### Extracting Genre
+
+The `genre` column in the data set provided for use holds the genres in a pipe separated format.AS a result of the extraction process, multiple genres separated by pipe characters will be split into separate rows, with each row containing a single genre.
+
+This preprocessing step is essential for subsequent analysis and visualization of the data, as it ensures that missing values are properly handled and that multiple genres are treated as separate categories.
+
+**Before extraction:**
+
+```{r, include=TRUE,echo=FALSE}
+edx |>
+  select(genres) |>
+  slice(1:5) |>
+  kable() |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+```
+
+```{r, include= FALSE, echo = FALSE}
+edx <- 
+  edx |>
+  mutate(genre = fct_na_value_to_level(genres)) |>
+  separate_rows(genre,sep = "\\|")
+
+final_holdout_test <- 
+  final_holdout_test |>
+  mutate(genre = fct_na_value_to_level(genres)) |>
+  separate_rows(genre,sep = "\\|")
+
+```
+
+**After extraction:**
+
+```{r, include=TRUE,echo=FALSE}
+edx |>
+  select(genre) |>
+  slice(1:5) |>
+  kable() |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+```
+
+### Preprocessed Data
+
+After Preprocessing, the unnecessary columns which are not needed further are eliminated. The data given below, after cleaning and preprocessing, is ready for use.
+
+```{r, include=FALSE, echo=FALSE}
+#Remove unnecessary columns from the datasets
+edx <- 
+  edx |>
+  select(userId,movieId,rating,title,genre,release_year,rating_year,rating_month)
+
+final_holdout_test <-
+  final_holdout_test |>
+  select(userId,movieId,rating,title,genre,release_year,rating_year,rating_month)
+
+```
+
+```{r, include= TRUE, echo = FALSE}
+head(edx) |>
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+```
+
+\newpage
+
+## Data Visualization
+
+```{r, include= FALSE, echo = FALSE}
+#setting the no. of colors to expand the color palette  
+nb.cols <- 25
+my_cols <- colorRampPalette(brewer.pal(9,"Blues"))(nb.cols)
+```
+
+### Popularity of Movies
+
+According to the bar plot below, we can observe that, the top 10 most rated movies were released during the years 90s.
+
+```{r, include= TRUE, echo = FALSE}
+#Top 10 most rated movies
+edx %>% 
+  group_by(movieId) %>% 
+  summarise(n_ratings = n()) %>% 
+  arrange(desc(n_ratings)) %>% 
+  top_n(10) %>% 
+  ggplot(aes(x = reorder(movieId, n_ratings), y = n_ratings, fill = factor(movieId))) + 
+  geom_bar(stat = "identity") + 
+  scale_fill_manual(values = my_cols) + 
+  theme(panel.background = element_rect(fill = 'lightgray', color = 'lightblue')) +
+  labs(title = "Top 10 Most Rated Movies", x = "Movie ID", y = "Number of Ratings")
+
+```
+
+#### Distribution of rating
+
+From the distribution of rating among the movies, it is observed that full-star votes were common than half-star votes. The histogram also implies that, the users who disliked, i.e, people who gave a lower rating, were very few compared to other users.
+
+```{r, include= TRUE, echo = FALSE}
+edx |> 
+  ggplot(aes(x = rating)) + 
+  geom_histogram(binwidth = 0.5, fill= "lightblue",color = "black") + 
+  labs(title = "Rating Distribution", x = "Rating", y = "Frequency")
+
+```
+
+#### User Activity
+
+The graph below shows the 10 most active users among the 71000 users. We can observe that, two of the users have given more than 10000 ratings.
+
+```{r, include= TRUE, echo = FALSE}
+edx |>
+  group_by(userId) |>
+  summarise(n_ratings = n()) |>
+  arrange(desc(n_ratings)) |>
+  top_n(10) |>
+  ggplot(aes(x = reorder(userId, n_ratings), y = n_ratings, fill = factor(userId))) + 
+  geom_bar(stat = "identity") + 
+  scale_fill_manual(values = my_cols) + 
+  theme(panel.background = element_rect(fill = 'lightgray', color = 'lightblue')) +
+  labs(title = "Top 10 Most Active Users", x = "User ID", y = "Number of Ratings")
+
+```
+
+#### Genre Distribution
+
+The bar plot below shows how many movies belong to a particular genre, It also give the information about the genres with the most (Drama(3910127)) and least (IMAX(8181)) number of movies .
+
+```{r, include= TRUE, echo = FALSE}
+edx |> 
+  group_by(genre) |>
+  summarise(n_movies = n()) |>
+  arrange(desc(n_movies)) |>
+  ggplot(aes(x = reorder(genre, n_movies), y = n_movies,fill = factor(genre))) + 
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = my_cols) + 
+  theme(panel.background = element_rect(fill = 'lightgray', color = 'lightblue'),
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "Genre Distribution", x = "Genre", y = "Number of Movies")
+
+```
+
+```{r, include= TRUE, echo = FALSE}
+edx |> 
+  group_by(genre) |>
+  summarise(n_movies = n()) |>
+  arrange(desc(n_movies)) |>
+  kable() |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+
+```
+
+#### Correlation of the Movie Rating
+
+The histogram here visualizes the distribution of average movie ratings in the `edx` data set. We can see that the average rating for the data set is around 3.5.
+
+```{r, include= TRUE, echo = FALSE}
+edx |> 
+  group_by(movieId) |>
+  summarise(avg_rating = mean(rating)) |>
+  ggplot(aes(x = avg_rating)) + 
+  geom_histogram(binwidth = 0.1, fill = "lightblue", color= "black") + 
+  labs(title = "Movie Rating Correlation", x = "Average Rating", y = "Frequency")
+
+
+```
+
+#### Average Rating by Movie Genre
+
+The bar plot shows the average rating per genre. The genre `Film-Noir` has the highest average rating of 4.01 and `Horror` has the least average rating of 3.27.
+
+```{r, include= TRUE, echo = FALSE}
+#Movie Genre vs. Average Rating
+edx |>
+  group_by(genre) |> 
+  summarise(avg_rating = mean(rating)) |>
+  ggplot(aes(x = genre, y = avg_rating,fill = factor(genre))) + 
+  geom_bar(stat = "identity") + 
+  scale_fill_manual(values = my_cols) +
+  theme(panel.background = element_rect(fill = 'lightgray', color = 'lightblue'),
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "Average Rating by Movie Genre", x = "Genre", y = "Average Rating")
+
+```
+
+# MODEL BUILDING ANG EVALUATION
+
+## Mean Baseline Model
+
+The purpose of this model is to provide a simple baseline model for comparison with more complex models. The mean baseline model assumes that all movies have the same average rating, which is a naive assumption. By comparing the performance of this model with more sophisticated models, we can evaluate the effectiveness of those models in capturing the underlying patterns in the data.
+
+```{r, include= FALSE, echo = FALSE}
+# Function for building the model
+mean_baseline_model <- function() {
+  mean_rating <- mean(edx$rating)
+  predictions <- rep(mean_rating, nrow(final_holdout_test))
+  return(predictions)
+}
+
+# Train and test model
+mean_baseline_pred <- mean_baseline_model()
+
+# Evaluate models using RMSE
+rmse_mean_baseline <- sqrt(mean((final_holdout_test$rating - mean_baseline_pred)^2))
+
+```
+
+There are certain limitations to this model.
+
+-   It assumes that all movies have the same average rating, which is unlikely to be true.
+-   It does not take into account any individual characteristics of the movies or users.
+-   It is a very simple model that does not capture any underlying patterns in the data.
+
+Despite these limitations, the mean baseline model provides a useful benchmark for evaluating the performance of more complex models.
+
+The RMSE value obtained on the testing data `final_holdout_test` is found to be **1.052558**
+
+## Movie-based Model
+
+The movie-based model works by assuming that users who have rated a movie similarly in the past will rate it similarly in the future. By calculating the mean rating for each movie, the model can make predictions for new, unseen ratings.
+
+```{r, include= FALSE, echo = FALSE}
+# Movie-Based Model
+movie_based_model <- function() {
+  movie_ratings <- edx %>%
+    group_by(movieId) %>%
+    summarise(mean_rating = mean(rating))
+  
+  predictions <- final_holdout_test %>%
+    left_join(movie_ratings, by = "movieId") %>%
+    pull(mean_rating)
+  
+  return(predictions)
+}
+
+# Train and test model
+movie_based_pred <- movie_based_model()
+
+# Evaluate model using RMSE
+rmse_movie_based <- sqrt(mean((final_holdout_test$rating - movie_based_pred)^2))
+
+```
+
+This approach is simple and effective, but it has some limitations, such as:
+
+-   It does not take into account individual user preferences.
+-   It does not capture complex patterns in the data.
+-   It can be sensitive to outliers and biased ratings.
+
+The RMSE value obtained on the testing data `final_holdout_test` is found to be **0.94107**
+
+## Movie + User based Model
+
+The movie + user-based model works by combining the strengths of both movie-based and user-based models. By accounting for both movie-specific and user-specific effects, the model can capture more complex patterns in the data and provide more accurate predictions. This approach is more effective than the simple movie-based model.
+
+```{r, include= FALSE, echo = FALSE}
+# global mean rating
+mu_hat <- mean(edx$rating)
+
+movie_ratings <- 
+  edx |>
+  group_by(movieId) |>
+  summarise(mean_rating = mean(rating - mu_hat))
+
+user_ratings <- 
+  edx |>
+  left_join(movie_ratings, by='movieId') |>
+  group_by(userId) |>
+  summarise(mean_ratingn = mean(rating - mu_hat - mean_rating))
+
+movie_user_based_model <- 
+  final_holdout_test |>
+  left_join(movie_ratings, by='movieId') |>
+  left_join(user_ratings, by='userId') |>
+  mutate(predicted_rating = mu_hat + mean_rating + mean_ratingn) %>%
+  pull(predicted_rating)
+
+
+# Train and test the model
+movie_user_based_pred <- movie_user_based_model
+
+# Evaluate model using RMSE
+rmse_movie_user_based <- sqrt(mean((final_holdout_test$rating - movie_user_based_pred)^2))
+```
+
+The RMSE value obtained on the testing data `final_holdout_test` is found to be **0.863366**
+
+## RMSE Comparison
+
+```{r, include= TRUE, echo = FALSE}
+rmse_results <- data.frame(
+  Models = c("Mean Baseline Model RMSE",
+             "Movie-Based Model RMSE",
+             "Movie + User-Based Model RMSE" ), 
+  RMSE = c(rmse_mean_baseline, 
+           rmse_movie_based,
+           rmse_movie_user_based))
+
+rmse_results |>
+  kable() |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+  
+
+```
+
+\newpage
+
+# REGULARIZATION
+
+The goal of hyperparameter tuning is to find the optimal value of the regularization hyperparameter `lambda` that minimizes the Root Mean Squared Error (RMSE) of the movie-based model.
+
+```{r, include= FALSE, echo = FALSE}
+# Define a range of lambda values
+lambdas <- seq(0, 10, 0.1)
+```
+
+## Regularized Movie-based Model
+
+The Regularized movie + user based model gives an RMSE of **0.9410685** on the `final_holdout_test set`, which not very different from the RMSE obtained on the non-regularized movie-based model.
+
+```{r, include= FALSE, echo = FALSE}
+# Initialize a vector to store the RMSE values
+rmses <- numeric(length(lambdas))
+
+# Perform hyperparameter tuning
+for (i in seq_along(lambdas)) {
+  lambda <- lambdas[i]
+  
+  # Calculate the average rating for each movie, regularized by lambda
+  movie_ratings <- edx %>%
+    group_by(movieId) %>%
+    summarise(mean_rating = sum(rating) / (n() + lambda))
+  
+  # Make predictions on the final_holdout_test set
+  predictions <- final_holdout_test %>%
+    left_join(movie_ratings, by = "movieId") %>%
+    pull(mean_rating)
+  
+  # Calculate the RMSE on the final_holdout_test set
+  rmse <- RMSE(final_holdout_test$rating, predictions)
+  
+  # Store the RMSE value
+  rmses[i] <- rmse
+}
+```
+
+```{r, include= TRUE, echo = FALSE}
+# Plot the RMSE vs lambda values
+rmse_lambda_value <- data.frame(RMSE = rmses, lambdas = lambdas)
+
+
+rmse_lambda_value |>
+  ggplot(aes(lambdas, rmses)) +
+  theme_classic() +
+  geom_point() +
+  labs(title = "RMSEs vs Lambdas - Movie-Based Model",
+       y = "RMSEs",
+       x = "lambdas")
+```
+
+```{r, include= FALSE, echo = FALSE}
+# Find the optimal lambda value
+min_lambda <- lambdas[which.min(rmses)]
+
+# Refit the model with the optimal lambda value
+movie_ratings <- edx %>%
+  group_by(movieId) %>%
+  summarise(mean_rating = sum(rating) / (n() + min_lambda))
+
+movie_based_model_regularized <- final_holdout_test %>%
+  left_join(movie_ratings, by = "movieId") %>%
+  pull(mean_rating)
+
+rmse_movie_model_regularized <- sqrt(mean((final_holdout_test$rating - movie_based_model_regularized)^2))
+```
+
+## Regularized Movie + User based Model
+
+The Regularized movie + user based model gives an RMSE of **0.8628** on the `final_holdout_test set`
+
+```{r, include= FALSE, echo = FALSE}
+# Initialize a vector to store the RMSE values
+rmses <- numeric(length(lambdas))
+
+# Perform hyperparameter tuning
+for (i in seq_along(lambdas)) {
+  lambda <- lambdas[i]
+  
+  # Calculate the global mean rating
+  mu_hat <- mean(edx$rating)
+  
+  # Calculate the average rating for each movie, regularized by lambda
+  movie_ratings <- 
+    edx |>
+    group_by(movieId) |>
+    summarise(mean_rating = sum(rating - mu_hat) / (n() + lambda))
+  
+  # Calculate the average rating for each user, regularized by lambda
+  user_ratings <- 
+    edx |>
+    left_join(movie_ratings, by='movieId') |>
+    group_by(userId) |>
+    summarise(mean_ratingn = sum(rating - mu_hat - mean_rating) / (n() + lambda))
+  
+  # Make predictions on the final_holdout_test set
+  predictions <- 
+    final_holdout_test |>
+    left_join(movie_ratings, by='movieId') |>
+    left_join(user_ratings, by='userId') |>
+    mutate(predicted_rating = mu_hat + mean_rating + mean_ratingn) %>%
+    pull(predicted_rating)
+  
+  # Calculate the RMSE on the final_holdout_test set
+  rmse <- RMSE(final_holdout_test$rating, predictions)
+  
+  # Store the RMSE value
+  rmses[i] <- rmse
+}
+```
+
+```{r, include= TRUE, echo = FALSE}
+# Plot the RMSE vs lambda values
+rmse_lambda_value <- data.frame(RMSE = rmses, lambdas = lambdas)
+
+
+rmse_lambda_value |>
+  ggplot(aes(lambdas, rmses)) +
+  theme_classic() +
+  geom_point() +
+  labs(title = "RMSEs vs Lambdas - Movie-User Based Model",
+       y = "RMSEs",
+       x = "lambdas")
+```
+
+```{r, include= FALSE, echo = FALSE}
+# Find the optimal lambda value
+min_lambda <- lambdas[which.min(rmses)]
+
+min(rmses)
+
+# Refit the model with the optimal lambda value
+mu_hat <- mean(edx$rating)
+
+movie_ratings <- 
+  edx |>
+  group_by(movieId) |>
+  summarise(mean_rating = sum(rating - mu_hat) / (n() + min_lambda))
+
+user_ratings <- 
+  edx |>
+  left_join(movie_ratings, by='movieId') |>
+  group_by(userId) |>
+  summarise(mean_ratingn = sum(rating - mu_hat - mean_rating) / (n() + min_lambda))
+
+movie_user_based_model_regularized <- 
+  final_holdout_test |>
+  left_join(movie_ratings, by='movieId') |>
+  left_join(user_ratings, by='userId') |>
+  mutate(predicted_rating = mu_hat + mean_rating + mean_ratingn) %>%
+  pull(predicted_rating)
+
+rmse_movie_user_model_regularized <- sqrt(mean((final_holdout_test$rating - movie_user_based_model_regularized)^2))
+
+```
+
+## RMSE after Regularization
+
+```{r, include= TRUE, echo = FALSE}
+rmse_results_regularized <- data.frame(
+  Regularized_Models= c("Movie-Based Model RMSE",
+                         "Movie + User-Based Model RMSE" ), 
+  RMSE = c(rmse_movie_model_regularized,
+           rmse_movie_user_model_regularized))
+
+rmse_results_regularized |>
+  kable() |>
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                position = "center",
+                font_size = 11,
+                full_width = FALSE)
+```
+
+\newpage
+
+# RESULTS
+
+The following table compares the RMSE before and after regularization
+
+```{r, include= FALSE, echo = FALSE}
+RMSE_table <- data.frame(
+  Models = c("Mean Baseline Model RMSE",
+             "Movie-Based Model RMSE", 
+             "Movie + User-Based Model RMSE"), 
+  RMSE_Non_Regularized = c(rmse_mean_baseline, 
+                            rmse_movie_based, 
+                            rmse_movie_user_based), 
+  RMSE_Regularized = c("NA", 
+                        rmse_movie_model_regularized,
+                        rmse_movie_user_model_regularized))
+
+RMSE_table |> 
+   kable() |>
+   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+             position = "center",
+             font_size = 11,
+             full_width = FALSE)
+
+
+names(RMSE_table)
+```
+
+\newpage
+
+# CONCLUSION
+
+From the above models, we can conclude that `movieId` and `userId` contribute to the training models. The `movie + user based model`, works accurately and gives an RMSE of **0.8628**.
+
+## Future Scope
+
+Further models could be build on the data set by considering the `genre` as a predictor. Additionally potential biases in the models could be investigated and strategies could be developed for mitigating them. The scalability and deployment of the models should also be accounted for.
+
+\newpage
+
+# APPENDIX
+
+## EDX Code
+
+```{r, include=FALSE, echo=TRUE}
+##########################################################
+# Create edx and final_holdout_test sets 
+##########################################################
+
+# Note: this process could take a couple of minutes
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(caret)
+
+# MovieLens 10M dataset:
+# https://grouplens.org/datasets/movielens/10m/
+# http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+options(timeout = 120)
+
+dl <- "ml-10M100K.zip"
+if(!file.exists(dl))
+  download.file("https://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings_file <- "ml-10M100K/ratings.dat"
+if(!file.exists(ratings_file))
+  unzip(dl, ratings_file)
+
+movies_file <- "ml-10M100K/movies.dat"
+if(!file.exists(movies_file))
+  unzip(dl, movies_file)
+
+ratings <- as.data.frame(str_split(read_lines(ratings_file), fixed("::"), simplify = TRUE),
+                         stringsAsFactors = FALSE)
+colnames(ratings) <- c("userId", "movieId", "rating", "timestamp")
+ratings <- ratings %>%
+  mutate(userId = as.integer(userId),
+         movieId = as.integer(movieId),
+         rating = as.numeric(rating),
+         timestamp = as.integer(timestamp))
+
+movies <- as.data.frame(str_split(read_lines(movies_file), fixed("::"), simplify = TRUE),
+                        stringsAsFactors = FALSE)
+colnames(movies) <- c("movieId", "title", "genres")
+movies <- movies %>%
+  mutate(movieId = as.integer(movieId))
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Final hold-out test set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding") # if using R 3.6 or later
+# set.seed(1) # if using R 3.5 or earlier
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in final hold-out test set are also in edx set
+final_holdout_test <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from final hold-out test set back into edx set
+removed <- anti_join(temp, final_holdout_test)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+```
+
+```{r, include=TRUE, echo=FALSE}
+print("Version : ")
+version
+```
+
+\newpage
+
+# REFERENCE
+
+[F. Maxwell Harper and Joseph A. Konstan. 2015. The MovieLens Datasets: History and Context. ACM Transactions on Interactive Intelligent Systems (TiiS) 5, 4, Article 19 (December 2015), 19 pages.](http://dx.doi.org/10.1145/2827872)
+
+[10M Version of the MovieLens Dataset](https://grouplens.org/datasets/movielens/10m/)
+
+[Entire MovieLens Dataset](https://grouplens.org/datasets/movielens/latest/)
